@@ -4,7 +4,7 @@ name: heartbeat
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'   # every 15 min (offset from :00 to dodge GitHub peak delays)
-    - cron: '13 22 * * *'          # daily 04:13 BDT: Pathao login refresh + keep-alive
+    - cron: '13 22 * * *'          # daily 04:13 BDT: Pathao login refresh + server backup + keep-alive
   workflow_dispatch:
 permissions:
   actions: write                   # only for the keep-alive re-enable call
@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           jobs="sweep reconcile"
-          if [ "$DAILY" = "true" ]; then jobs="$jobs token"; fi
+          if [ "$DAILY" = "true" ]; then jobs="$jobs token backup"; fi
           fail=0
           for j in $jobs; do
             code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 110 --retry 2 --retry-delay 15 \
