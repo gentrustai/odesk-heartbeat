@@ -1,0 +1,40 @@
+# Timer for ODESK scheduled jobs (host has no crontab).
+# PUBLIC repo => run logs are public: print HTTP status codes ONLY, never response bodies.
+name: heartbeat
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'   # every 15 min (offset from :00 to dodge GitHub peak delays)
+    - cron: '13 22 * * *'          # daily 04:13 BDT: Pathao login refresh + keep-alive
+  workflow_dispatch:
+permissions:
+  actions: write                   # only for the keep-alive re-enable call
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Run ODESK jobs
+        env:
+          URL: ${{ secrets.ODESK_CRON_URL }}
+          TOKEN: ${{ secrets.ODESK_CRON_TOKEN }}
+          DAILY: ${{ github.event.schedule == '13 22 * * *' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          jobs="sweep reconcile"
+          if [ "$DAILY" = "true" ]; then jobs="$jobs token"; fi
+          fail=0
+          for j in $jobs; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 110 --retry 2 --retry-delay 15 \
+              -X POST -H "X-Cron-Token: $TOKEN" --data "job=$j" "$URL" || echo 000)
+            echo "$j -> HTTP $code"
+            [ "$code" = "200" ] || fail=1
+          done
+          exit $fail
+      - name: Keep schedule alive (GitHub pauses schedules after 60 quiet days)
+        if: always() && (github.event.schedule == '13 22 * * *' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/heartbeat.yml/enable" && echo enabled
